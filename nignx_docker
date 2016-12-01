@@ -1,0 +1,61 @@
+FROM docker.io/centos:latest
+
+RUN yum -y install gcc gcc-c++ make libtool zlib openssh-server  zlib-devel pcre pcre-devel openssl openssl-devel libxml2-devel libcurl-devel bzip2-devel net-tools sudo python-setuptools
+
+RUN useradd -M -s /sbin/nologin nginx
+
+COPY nginx/* /nginx/
+
+WORKDIR /nginx/
+
+RUN tar zxf nginx-1.10.2.tar.gz
+
+WORKDIR  /nginx/nginx-1.10.2
+
+RUN  ./configure --prefix=/usr/local/nginx1.10 --with-http_dav_module --with-http_stub_status_module --with-http_addition_module --with-http_sub_module  --with-http_flv_module --with-http_mp4_module --with-pcre --with-http_ssl_module --with-http_gzip_static_module  --user=nginx --group=nginx   && make  && make install &> /dev/null
+
+
+VOLUME /nginx_data
+
+RUN tar zxf /nginx/libmcrypt-2.5.7.tar.gz -C /nginx/
+
+WORKDIR /nginx/libmcrypt-2.5.7/
+
+RUN ./configure --prefix=/usr/local/libmcrypt &> /dev/null  && make &> /dev/null && make install &> /dev/null
+
+RUN tar zxf /nginx/php-5.6.27.tar.gz -C /nginx/
+
+WORKDIR  /nginx/php-5.6.27
+
+RUN ./configure --prefix=/usr/local/php5.6 --with-mysql=mysqlnd --with-pdo-mysql=mysqlnd --with-mysqli=mysqlnd --with-openssl --enable-fpm --enable-sockets --enable-sysvshm --enable-mbstring --with-freetype-dir --with-jpeg-dir --with-png-dir --with-zlib --with-libxml-dir=/usr --enable-xml --with-mhash --with-mcrypt=/usr/local/libmcrypt --with-config-file-path=/etc --with-config-file-scan-dir=/etc/php.d --with-bz2 --enable-maintainer-zts && make &> /dev/null  && make install &> /dev/null &> /dev/null
+
+RUN cp php.ini-production /etc/php.ini
+
+RUN cp /usr/local/php5.6/etc/php-fpm.conf.default /usr/local/php5.6/etc/php-fpm.conf
+
+RUN sed -ir 's/;pid = run\/php-fpm.pid/pid = run\/php-fpm.pid/g' /usr/local/php5.6/etc/php-fpm.conf
+RUN sed -ir 's/pm.max_children = 5/pm.max_children = 50/g' /usr/local/php5.6/etc/php-fpm.conf
+RUN sed -ir 's/pm.start_servers = 2/pm.start_servers = 20/g' /usr/local/php5.6/etc/php-fpm.conf
+RUN sed -ir 's/pm.max_spare_servers = 3/pm.max_spare_servers = 50/g' /usr/local/php5.6/etc/php-fpm.conf
+RUN sed -ir 's/pm.min_spare_servers = 1/pm.min_spare_servers = 20/g'  /usr/local/php5.6/etc/php-fpm.conf
+
+RUN rm -rf /usr/local/nginx1.10/conf/nginx.conf
+
+ADD nginx.conf  /usr/local/nginx1.10/conf/nginx.conf
+
+RUN useradd admin
+RUN echo "admin:admin" | chpasswd
+RUN echo "admin		ALL=(ALL)	ALL" >> /etc/sudoers
+RUN ssh-keygen -t dsa -f /etc/ssh/ssh_host_dsa_key
+RUN ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key
+RUN ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key
+RUN ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key
+ADD  authorized_keys /home/admin/.ssh/authorized_keys  
+
+EXPOSE 22 80 443
+
+RUN /usr/bin/easy_install supervisor
+
+RUN sed -ri 's/session    required     pam_loginuid.so/#session    required     pam_loginuid.so/g' /etc/pam.d/sshd
+COPY supervisord.conf /etc/supervisor/supervisord.conf
+CMD ["/usr/bin/supervisord"]
